@@ -1,7 +1,7 @@
 package com.andrewcompton.sudoku
 
-import java.util.StringJoiner
-
+import scala.collection.Set
+import scala.collection.parallel.ParSeq
 import scala.util.Try
 
 object Sudoku {
@@ -15,7 +15,7 @@ object Sudoku {
     def parse(s: String): Grid = {
       val values = s.filterNot(Character.isWhitespace).map({
         case i if Character.isDigit(i) ⇒ Solved(i - '0')
-        case _ ⇒ Unsolved(elems)
+        case _ ⇒ Unsolved
       }).toVector
 
       require(values.length == dim * dim, s"wrong dimensions (${values.length} != ${dim*dim})")
@@ -26,26 +26,51 @@ object Sudoku {
 
   sealed abstract class Square(val isSolved: Boolean)
   case class Solved(i: Int) extends Square(true)
-  case class Unsolved(e: Set[Int]) extends Square(false)
+  case object Unsolved extends Square(false)
 
   type Group = Seq[Square]
 
   class Grid(val state: Vector[Square], val fmt: GridFormat) {
     import fmt._
 
-    private val unsolved = state.zipWithIndex
-      .collect { case (sq: Unsolved, i) => (sq, i) }
-      .sortBy { case (Unsolved(e), _) => e.size }
-
-    def reduce(): List[Grid] =
-      if (!isValid) List.empty
-      else unsolved.headOption match {
-        case Some((Unsolved(e), i)) =>
-          e.toList.flatMap { n =>
-            new Grid(state.updated(i, Solved(n)), fmt).reduce()
-          }
-        case None => List(this)
+    private val unsolved = {
+      val candidatesByIndex = for (i <- state.indices if !state(i).isSolved) yield {
+        val (c, r) = (i % dim, i / dim)
+        val rowRemaining = remaining(row(r))
+        val colRemaining = remaining(col(c))
+        val boxRemaining = remaining(boxAt(c, r))
+        val candidates = rowRemaining.intersect(colRemaining).intersect(boxRemaining)
+        (i, candidates)
       }
+
+      candidatesByIndex.sortBy(_._2.size)
+    }
+
+    def reduce(): ParSeq[Grid] =
+      if (!isValid) ParSeq.empty
+      else {
+        val (solved, remaining) = unsolved.partition(_._2.size == 1)
+
+        val newState = solved.foldLeft(state) {
+          case (s, (i, n)) => s.updated(i, Solved(n.head))
+        }
+
+        remaining.headOption match {
+          case Some((i, candidates)) =>
+            candidates.toList.par.flatMap(n =>
+              new Grid(newState.updated(i, Solved(n)), fmt).reduce()
+            )
+          case None => ParSeq(this)
+        }
+      }
+
+    private def remaining(g: Group) = {
+      val solved = g.collect {
+        case Solved(i) => i
+      }.toSet
+
+      elems.diff(solved)
+    }
 
     def isValid: Boolean =
       rows.find(containsDuplicates)
@@ -76,9 +101,9 @@ object Sudoku {
     def boxAt(c: Int, r: Int): Group = box((c / 3) + (r / 3 * 3))
 
     override def toString: String = {
-      val stateDesc = state.map {
-        case Solved(i) ⇒ i.toString
-        case Unsolved(e) ⇒ e.toList.sorted.foldLeft(new StringJoiner(",", "{", "}"))((j, i) ⇒ j.add(i.toString)).toString
+      val stateDesc = state.zipWithIndex.map {
+        case (Solved(i), _) ⇒ i.toString
+        case (Unsolved, i) ⇒ "?"
       }
 
       val fmtWidth = stateDesc.map(_.length).max
@@ -115,12 +140,14 @@ object Sudoku {
     }
 
     if (g.isEmpty) {
+      println("Error reading input")
       return
     }
 
     val unsolved = GridFormat(9).parse(g.get)
 
     val solutions = unsolved.reduce()
+
     if (solutions.isEmpty) print("No solutions found")
     else if (solutions.size == 1) print("Found a unique solution")
     else print("Multiple solutions found")
