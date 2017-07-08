@@ -1,7 +1,9 @@
 package com.andrewcompton.sudoku
 
+import java.time.Duration
+
 import scala.collection.Set
-import scala.collection.parallel.ParSeq
+import scala.collection.parallel.ParSet
 import scala.util.Try
 
 object Sudoku {
@@ -13,10 +15,10 @@ object Sudoku {
     val elems: Set[Int] = (1 to dim).toSet
 
     def parse(s: String): Grid = {
-      val values = s.filterNot(Character.isWhitespace).map({
-        case i if Character.isDigit(i) ⇒ Solved(i - '0')
+      val values = s.filterNot(Character.isWhitespace).map {
+        case i if i > '0' && i <= '9' ⇒ Solved(i - '0')
         case _ ⇒ Unsolved
-      }).toVector
+      }.toVector
 
       require(values.length == dim * dim, s"wrong dimensions (${values.length} != ${dim*dim})")
 
@@ -46,8 +48,10 @@ object Sudoku {
       candidatesByIndex.sortBy(_._2.size)
     }
 
-    def reduce(): ParSeq[Grid] =
-      if (!isValid) ParSeq.empty
+    def reduce(): Set[Grid] = reduceInternal().seq
+
+    private def reduceInternal(): ParSet[Grid] =
+      if (!isValid) ParSet.empty
       else {
         val (solved, remaining) = unsolved.partition(_._2.size == 1)
 
@@ -57,10 +61,10 @@ object Sudoku {
 
         remaining.headOption match {
           case Some((i, candidates)) =>
-            candidates.toList.par.flatMap(n =>
-              new Grid(newState.updated(i, Solved(n)), fmt).reduce()
+            candidates.par.flatMap(n =>
+              new Grid(newState.updated(i, Solved(n)), fmt).reduceInternal()
             )
-          case None => ParSeq(this)
+          case None => ParSet(new Grid(newState, fmt))
         }
       }
 
@@ -101,9 +105,9 @@ object Sudoku {
     def boxAt(c: Int, r: Int): Group = box((c / 3) + (r / 3 * 3))
 
     override def toString: String = {
-      val stateDesc = state.zipWithIndex.map {
-        case (Solved(i), _) ⇒ i.toString
-        case (Unsolved, i) ⇒ "?"
+      val stateDesc = state.map {
+        case Solved(i) ⇒ i.toString
+        case Unsolved ⇒ "?"
       }
 
       val fmtWidth = stateDesc.map(_.length).max
@@ -146,7 +150,13 @@ object Sudoku {
 
     val unsolved = GridFormat(9).parse(g.get)
 
+    println("Solving grid")
+    println(unsolved)
+
     val solutions = unsolved.reduce()
+
+    for(i <- sys.props.get("measureIterations"))
+      measurePerformance(unsolved, i.toInt)
 
     if (solutions.isEmpty) print("No solutions found")
     else if (solutions.size == 1) print("Found a unique solution")
@@ -156,5 +166,42 @@ object Sudoku {
       println()
       println(solution)
     }
+  }
+
+  def measurePerformance(grid: Grid, times: Int): Unit = {
+    println(s"Measuring performance over $times iterations")
+
+    var totalTime = 0L
+    var minDuration = Long.MaxValue
+    var maxDuration = Long.MinValue
+
+    for (i <- 1 to times) {
+      val start = System.nanoTime()
+      grid.reduce()
+      val end = System.nanoTime()
+      val elapsed = end - start
+
+      totalTime += elapsed
+
+      if (elapsed < minDuration) {
+        minDuration = elapsed
+      }
+
+      if (elapsed > maxDuration) {
+        maxDuration = elapsed
+      }
+
+      print('.')
+      if (i % 100 == 0) {
+        println(i)
+      }
+    }
+
+    println()
+    println(s"TotalTime: ${Duration.ofNanos(totalTime)}")
+    println(s"MinDuration: ${Duration.ofNanos(minDuration)}")
+    println(s"MaxDuration: ${Duration.ofNanos(maxDuration)}")
+    println(s"AvgDuration: ${Duration.ofNanos(totalTime / times)}")
+    println()
   }
 }
