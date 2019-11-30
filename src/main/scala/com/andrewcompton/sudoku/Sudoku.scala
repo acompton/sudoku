@@ -3,7 +3,6 @@ package com.andrewcompton.sudoku
 import java.time.Duration
 
 import scala.collection.Set
-import scala.collection.parallel.ParSet
 import scala.util.Try
 
 object Sudoku {
@@ -16,8 +15,8 @@ object Sudoku {
 
     def parse(s: String): Grid = {
       val values = s.filterNot(Character.isWhitespace).map {
-        case i if i > '0' && i <= '9' ⇒ Solved(i - '0')
-        case _ ⇒ Unsolved
+        case i if i > '0' && i <= '9' => Solved(i - '0')
+        case _ => Unsolved
       }.toVector
 
       require(values.length == dim * dim, s"wrong dimensions (${values.length} != ${dim*dim})")
@@ -48,10 +47,10 @@ object Sudoku {
       candidatesByIndex.sortBy(_._2.size)
     }
 
-    def reduce(): Set[Grid] = reduceInternal().seq
+    def reduce(): Set[Grid] = reduceInternal()
 
-    private def reduceInternal(): ParSet[Grid] =
-      if (!isValid) ParSet.empty
+    private def reduceInternal(): Set[Grid] =
+      if (!isValid) Set.empty
       else {
         val (solved, remaining) = unsolved.partition(_._2.size == 1)
 
@@ -61,10 +60,10 @@ object Sudoku {
 
         remaining.headOption match {
           case Some((i, candidates)) =>
-            candidates.par.flatMap(n =>
+            candidates.flatMap(n =>
               new Grid(newState.updated(i, Solved(n)), fmt).reduceInternal()
             )
-          case None => ParSet(new Grid(newState, fmt))
+          case None => Set(new Grid(newState, fmt))
         }
       }
 
@@ -89,16 +88,16 @@ object Sudoku {
 
     def apply(c: Int, r: Int): Square = state(c + r * dim)
 
-    def rows: Seq[Group] = for(r ← 0 until dim) yield row(r)
-    def cols: Seq[Group] = for(c ← 0 until dim) yield col(c)
-    def boxes: Seq[Group] = for(g ← 0 until dim) yield box(g)
+    def rows: Seq[Group] = for(r <- 0 until dim) yield row(r)
+    def cols: Seq[Group] = for(c <- 0 until dim) yield col(c)
+    def boxes: Seq[Group] = for(g <- 0 until dim) yield box(g)
 
-    def row(r: Int): Group = for (c ← 0 until dim) yield apply(c, r)
-    def col(c: Int): Group = for (r ← 0 until dim) yield apply(c, r)
+    def row(r: Int): Group = for (c <- 0 until dim) yield apply(c, r)
+    def col(c: Int): Group = for (r <- 0 until dim) yield apply(c, r)
 
     def box(g: Int): Group = {
       val (colStart, rowStart) = (g % groupDim * groupDim, g / groupDim * groupDim)
-      for(gr ← 0 until groupDim; gc ← 0 until groupDim)
+      for(gr <- 0 until groupDim; gc <- 0 until groupDim)
         yield apply(gc + colStart, gr + rowStart)
     }
 
@@ -106,8 +105,8 @@ object Sudoku {
 
     override def toString: String = {
       val stateDesc = state.map {
-        case Solved(i) ⇒ i.toString
-        case Unsolved ⇒ "?"
+        case Solved(i) => i.toString
+        case Unsolved => "?"
       }
 
       val fmtWidth = stateDesc.map(_.length).max
