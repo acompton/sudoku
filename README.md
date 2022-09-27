@@ -40,4 +40,3 @@ invalid puzzle), then all solutions are displayed.
     ║ 6 1 2 ║ 3 9 7 ║ 4 5 8 ║
     ╚═══════╩═══════╩═══════╝
     
-This is my edit!
